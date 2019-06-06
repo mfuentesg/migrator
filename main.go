@@ -113,13 +113,11 @@ func migrate(config *Config, migration *Migration) (*Stats, error) {
 	}
 	bw.Wait()
 	if migration.Mode == ModeMove && len(keys) > 0 {
-		log.Println("finishing migration ...")
 		if err := origin.Del(keys...).Err(); err != nil {
 			log.Printf("could not delete keys: %+v\n", err)
 		}
 	}
 	stats.Duration = time.Since(init)
-
 	return stats, nil
 }
 
@@ -156,16 +154,17 @@ func move(origin, target *redis.Client, bw *BoundedWaitGroup, stats *Stats, key 
 
 func main() {
 	var (
-		config  string
-		pattern string
-		mode    string
-		workers int
+		config     string
+		pattern    string
+		mode       string
+		workers    int
+		maxWorkers = 500
 	)
 
 	flag.StringVar(&config, "config", "config.yaml", "config path")
 	flag.StringVar(&pattern, "pattern", "*", "pattern to be used with `KEYS <pattern>` command")
 	flag.StringVar(&mode, "mode", "COPY", "migration mode, COPY|MOVE (COPY: replicate, MOVE: replicate and delete)")
-	flag.IntVar(&workers, "workers", 1000, "number max of workers to sync (max: 1000)")
+	flag.IntVar(&workers, "workers", maxWorkers, fmt.Sprintf("number max of workers to sync (max: %d)", maxWorkers))
 	flag.Parse()
 
 	if _, err := os.Stat(config); err != nil {
@@ -176,8 +175,8 @@ func main() {
 		log.Fatalf("unsupported mode %s. Instead use `COPY` or `MOVE` modes", mode)
 	}
 
-	if workers > 1000 {
-		workers = 1000
+	if workers > maxWorkers {
+		workers = maxWorkers
 	}
 
 	var settings Config
@@ -195,5 +194,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not migrate: %+v\n", err)
 	}
-	fmt.Printf("%+v\n", stats)
+	statsMessage := "migration completed\npattern: '%s'\nduration: %+v\ntotal:%d\nfailed: %d\n"
+	fmt.Printf(statsMessage, stats.Pattern, stats.Duration.Seconds(), stats.Total, stats.Total-stats.Completed)
 }
