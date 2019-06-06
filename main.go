@@ -41,6 +41,7 @@ type Stats struct {
 	Completed int
 	Pattern   string
 	Duration  time.Duration
+	Pending   []string
 }
 
 func NewBoundedWaitGroup(cap int) BoundedWaitGroup {
@@ -75,6 +76,7 @@ var (
 		"COPY": ModeCopy,
 		"MOVE": ModeMove,
 	}
+	locker sync.Mutex
 )
 
 func migrate(config *Config, migration *Migration) (*Stats, error) {
@@ -148,7 +150,21 @@ func move(origin, target *redis.Client, bw *BoundedWaitGroup, stats *Stats, key 
 		hasError = true
 	}
 	if hasError {
+		locker.Lock()
 		stats.Completed -= 1
+		stats.Pending = append(stats.Pending, key)
+		locker.Unlock()
+	}
+}
+
+func printStats(stats *Stats) {
+	statsMessage := "migration completed\npattern: '%s'\nduration: %+vs\ntotal:%d\nfailed: %d\n"
+	fmt.Printf(statsMessage, stats.Pattern, stats.Duration.Seconds(), stats.Total, stats.Total-stats.Completed)
+	if len(stats.Pending) > 0 {
+		fmt.Printf("\npending keys:\n")
+		for _, pending := range stats.Pending {
+			fmt.Printf("  %s\n", pending)
+		}
 	}
 }
 
@@ -170,7 +186,6 @@ func main() {
 	if _, err := os.Stat(config); err != nil {
 		log.Fatalf("could not load config file: %+v", err)
 	}
-
 	if _, ok := modes[mode]; !ok {
 		log.Fatalf("unsupported mode %s. Instead use `COPY` or `MOVE` modes", mode)
 	}
@@ -184,7 +199,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not read config file: %+v", err)
 	}
-
 	if err := yaml.Unmarshal(buf, &settings); err != nil {
 		log.Fatalf("could not parse config file: %+v", err)
 	}
@@ -194,6 +208,5 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not migrate: %+v\n", err)
 	}
-	statsMessage := "migration completed\npattern: '%s'\nduration: %+v\ntotal:%d\nfailed: %d\n"
-	fmt.Printf(statsMessage, stats.Pattern, stats.Duration.Seconds(), stats.Total, stats.Total-stats.Completed)
+	printStats(stats)
 }
