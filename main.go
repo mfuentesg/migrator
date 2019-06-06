@@ -111,19 +111,14 @@ func migrate(config *Config, migration *Migration) (*Stats, error) {
 	}
 	for _, key := range keys {
 		bw.Add(1)
-		go move(origin, target, &bw, stats, key)
+		go move(origin, target, migration.Mode, &bw, stats, key)
 	}
 	bw.Wait()
-	if migration.Mode == ModeMove && len(keys) > 0 {
-		if err := origin.Del(keys...).Err(); err != nil {
-			log.Printf("could not delete keys: %+v\n", err)
-		}
-	}
 	stats.Duration = time.Since(init)
 	return stats, nil
 }
 
-func move(origin, target *redis.Client, bw *BoundedWaitGroup, stats *Stats, key string) {
+func move(origin, target *redis.Client, mode int, bw *BoundedWaitGroup, stats *Stats, key string) {
 	defer bw.Done()
 
 	keyTtl := origin.TTL(key)
@@ -155,10 +150,16 @@ func move(origin, target *redis.Client, bw *BoundedWaitGroup, stats *Stats, key 
 		stats.Pending = append(stats.Pending, key)
 		locker.Unlock()
 	}
+
+	if !hasError && mode == ModeMove {
+		if err := origin.Del(key).Err(); err != nil {
+			log.Printf("could not delete keys: %+v\n", err)
+		}
+	}
 }
 
 func printStats(stats *Stats) {
-	statsMessage := "migration completed\npattern: '%s'\nduration: %+vs\ntotal:%d\nfailed: %d\n"
+	statsMessage := "migration completed\npattern: '%s'\nduration: %+vs\ntotal: %d\nfailed: %d\n"
 	fmt.Printf(statsMessage, stats.Pattern, stats.Duration.Seconds(), stats.Total, stats.Total-stats.Completed)
 	if len(stats.Pending) > 0 {
 		fmt.Printf("\npending keys:\n")
