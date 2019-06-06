@@ -1,11 +1,13 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ type redisConfig struct {
 	Port     int    `yaml:"port"`
 	Database int    `yaml:"database"`
 	Password string `yaml:"password"`
+	Secure   bool   `yaml:"secure"`
 }
 
 type Migration struct {
@@ -76,22 +79,27 @@ var (
 		"COPY": ModeCopy,
 		"MOVE": ModeMove,
 	}
-	locker sync.Mutex
+	mutex sync.Mutex
 )
+
+func newRedisClient(conf *redisConfig) *redis.Client {
+	options := &redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", conf.Host, conf.Port),
+		Password: conf.Password,
+		DB:       conf.Database,
+	}
+	if conf.Secure {
+		options.TLSConfig = &tls.Config{
+			ServerName: strings.Split(options.Addr, ":")[0],
+		}
+	}
+	return redis.NewClient(options)
+}
 
 func migrate(config *Config, migration *Migration) (*Stats, error) {
 	init := time.Now()
-	origin := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", config.Origin.Host, config.Origin.Port),
-		Password: config.Origin.Password,
-		DB:       config.Origin.Database,
-	})
-
-	target := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", config.Target.Host, config.Target.Port),
-		Password: config.Target.Password,
-		DB:       config.Target.Database,
-	})
+	origin := newRedisClient(&config.Origin)
+	target := newRedisClient(&config.Target)
 
 	if err := origin.Ping().Err(); err != nil {
 		return nil, fmt.Errorf("could not connect to origin redis server: %+v", err)
@@ -145,10 +153,10 @@ func move(origin, target *redis.Client, mode int, bw *BoundedWaitGroup, stats *S
 		hasError = true
 	}
 	if hasError {
-		locker.Lock()
+		mutex.Lock()
 		stats.Completed -= 1
 		stats.Pending = append(stats.Pending, key)
-		locker.Unlock()
+		mutex.Unlock()
 	}
 
 	if !hasError && mode == ModeMove {

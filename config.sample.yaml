@@ -3,9 +3,11 @@ origin:
   password: secret
   host: localhost
   port: 6379
+  secure: false
 
 target:
   database: 0
   host: localhost
   port: 6380
   password: secret
+  secure: false
