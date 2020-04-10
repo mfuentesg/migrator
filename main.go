@@ -129,7 +129,7 @@ func migrate(config *Config, migration *Migration) (*Stats, error) {
 func move(origin, target *redis.Client, mode int, bw *BoundedWaitGroup, stats *Stats, key string) {
 	defer bw.Done()
 
-	keyTtl := origin.TTL(key)
+	keyTTL := origin.TTL(key)
 	keyGet := origin.Get(key)
 
 	var hasError bool
@@ -137,15 +137,15 @@ func move(origin, target *redis.Client, mode int, bw *BoundedWaitGroup, stats *S
 		hasError = true
 		log.Printf("could not get key %s from origin redis: %+v\n", key, keyGet.Err())
 	}
-	if err := keyTtl.Err(); err != nil {
+	if err := keyTTL.Err(); err != nil {
 		hasError = true
-		log.Printf("could not get key %s ttl from origin redis: %+v\n", key, keyTtl.Err())
+		log.Printf("could not get key %s ttl from origin redis: %+v\n", key, keyTTL.Err())
 	}
 
 	// set no expiration by default
 	exp := 0 * time.Second
-	if keyTtl.Val().Seconds() > 0 {
-		exp = keyTtl.Val()
+	if keyTTL.Val().Seconds() > 0 {
+		exp = keyTTL.Val()
 	}
 	keySet := target.Set(key, keyGet.Val(), exp)
 	if err := keySet.Err(); err != nil {
@@ -154,7 +154,7 @@ func move(origin, target *redis.Client, mode int, bw *BoundedWaitGroup, stats *S
 	}
 	if hasError {
 		mutex.Lock()
-		stats.Completed -= 1
+		stats.Completed--
 		stats.Pending = append(stats.Pending, key)
 		mutex.Unlock()
 	}
